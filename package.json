@@ -1,0 +1,41 @@
+{
+  "bin": {
+    "contextbudget": "dist/cli.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1",
+    "zod": "^3"
+  },
+  "description": "Token budget auditor for agent context: per-file and per-directory token estimates for a repo, the top offenders eating the window, and concrete exclusion advice, against a configurable budget.",
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "server.json"
+  ],
+  "homepage": "https://github.com/CloudCorpRecords/contextbudget#readme",
+  "license": "MIT",
+  "mcpName": "io.github.CloudCorpRecords/contextbudget",
+  "name": "@reneturcios/contextbudget",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CloudCorpRecords/contextbudget.git"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}
