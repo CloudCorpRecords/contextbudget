@@ -10,12 +10,20 @@
  *   small totals: 3 files, 25 chars, 7 tokens
  *
  *   fixtures/with-skips/index.txt  "12345678"  8 chars, 2 tokens
- *   fixtures/with-skips/node_modules and fixtures/with-skips/dist are
- *   skipped by default, so their contents never reach the totals.
+ *   The with-skips tree is generated at test time: the committed
+ *   index.txt and dist files are copied into a temp dir, and a
+ *   node_modules/pkg/big.txt file ("xxxxxxxxxx", 10 chars) is created
+ *   there programmatically. A committed directory named node_modules
+ *   cannot survive a push and checkout round trip, so no test may
+ *   depend on one. Both node_modules and dist are skipped by default,
+ *   so their contents never reach the totals.
+ *
+ *   Empty-directory tests also use a temp dir created at test time,
+ *   because an empty directory cannot be stored by version control.
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +32,20 @@ import { runCheck, renderReport, CLEAN_VERDICT, VERSION } from "../src/core.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SMALL = join(HERE, "fixtures", "small");
 const WITH_SKIPS = join(HERE, "fixtures", "with-skips");
-const EMPTY = join(HERE, "fixtures", "empty");
+
+/** Build the with-skips tree in a temp dir, creating node_modules at test time. */
+function makeWithSkipsTree(): string {
+  const dir = mkdtempSync(join(tmpdir(), "contextbudget-skips-"));
+  cpSync(WITH_SKIPS, dir, { recursive: true });
+  mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+  writeFileSync(join(dir, "node_modules", "pkg", "big.txt"), "xxxxxxxxxx", "utf8");
+  return dir;
+}
+
+/** Create an empty directory at test time. */
+function makeEmptyTree(): string {
+  return mkdtempSync(join(tmpdir(), "contextbudget-empty-"));
+}
 
 function withBudget<T>(budget: string | undefined, fn: () => T): T {
   const saved = process.env.CONTEXTBUDGET_BUDGET;
@@ -126,27 +147,37 @@ describe("runCheck on the small fixture tree", () => {
 
 describe("runCheck skips", () => {
   it("skips node_modules and dist and reports info findings for them", () => {
-    const r = withBudget(undefined, () => runCheck(WITH_SKIPS));
-    assert.equal(r.counts.files, 1);
-    assert.equal(r.counts.totalChars, 8);
-    assert.equal(r.counts.totalTokens, 2);
-    assert.equal(r.counts.skippedDirs, 2);
-    const infos = r.findings.filter((f) => f.severity === "info");
-    assert.equal(infos.length, 2);
-    assert.ok(infos.every((f) => f.rule === "skipped-dir"));
-    assert.deepEqual(
-      infos.map((f) => f.file).sort(),
-      ["dist", "node_modules"],
-    );
+    const dir = makeWithSkipsTree();
+    try {
+      const r = withBudget(undefined, () => runCheck(dir));
+      assert.equal(r.counts.files, 1);
+      assert.equal(r.counts.totalChars, 8);
+      assert.equal(r.counts.totalTokens, 2);
+      assert.equal(r.counts.skippedDirs, 2);
+      const infos = r.findings.filter((f) => f.severity === "info");
+      assert.equal(infos.length, 2);
+      assert.ok(infos.every((f) => f.rule === "skipped-dir"));
+      assert.deepEqual(
+        infos.map((f) => f.file).sort(),
+        ["dist", "node_modules"],
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("counts an empty directory as zero with a clean verdict", () => {
-    const r = withBudget(undefined, () => runCheck(EMPTY));
-    assert.equal(r.counts.files, 0);
-    assert.equal(r.counts.totalTokens, 0);
-    assert.equal(r.counts.totalChars, 0);
-    assert.equal(r.verdict, CLEAN_VERDICT);
-    assert.equal(r.findings.length, 0);
+    const dir = makeEmptyTree();
+    try {
+      const r = withBudget(undefined, () => runCheck(dir));
+      assert.equal(r.counts.files, 0);
+      assert.equal(r.counts.totalTokens, 0);
+      assert.equal(r.counts.totalChars, 0);
+      assert.equal(r.verdict, CLEAN_VERDICT);
+      assert.equal(r.findings.length, 0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("skips binary files and files over 1 MiB in a generated tree", () => {
@@ -187,10 +218,15 @@ describe("renderReport", () => {
   });
 
   it("renders empty sections for an empty tree", () => {
-    const r = withBudget(undefined, () => runCheck(EMPTY));
-    const text = renderReport(r);
-    assert.match(text, /Verdict: WITHIN-BUDGET/);
-    assert.match(text, /Top files by estimated tokens:\n {2}\(none\)/);
-    assert.match(text, /Findings:\n {2}\(none\)/);
+    const dir = makeEmptyTree();
+    try {
+      const r = withBudget(undefined, () => runCheck(dir));
+      const text = renderReport(r);
+      assert.match(text, /Verdict: WITHIN-BUDGET/);
+      assert.match(text, /Top files by estimated tokens:\n {2}\(none\)/);
+      assert.match(text, /Findings:\n {2}\(none\)/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
